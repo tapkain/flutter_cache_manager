@@ -8,7 +8,6 @@ import 'package:flutter_cache_manager/src/cache_store.dart';
 import 'package:flutter_cache_manager/src/file_fetcher.dart';
 import 'package:flutter_cache_manager/src/file_info.dart';
 import 'package:flutter_cache_manager/src/web_helper.dart';
-import 'package:http/http.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
@@ -199,7 +198,7 @@ abstract class BaseCacheManager {
   }
 
   /// Removes all files from the cache
-  emptyCache() async {
-    await _store.emptyCache();
+  emptyCache({bool files = true}) async {
+    await _store.emptyCache(files: files);
   }
 }

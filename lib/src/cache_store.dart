@@ -146,26 +146,27 @@ class CacheStore {
     await provider.deleteAll(toRemove);
   }
 
-  emptyCache() async {
+  emptyCache({bool files = true}) async {
     var provider = await _cacheObjectProvider;
     var toRemove = List<int>();
 
     var allObjects = await provider.getAllObjects();
     allObjects.forEach((cacheObject) async {
-      _removeCachedFile(cacheObject, toRemove);
+      _removeCachedFile(cacheObject, toRemove, files: files);
     });
 
     await provider.deleteAll(toRemove);
   }
 
-  removeCachedFile(CacheObject cacheObject) async {
+  removeCachedFile(CacheObject cacheObject, {bool files = true}) async {
     var provider = await _cacheObjectProvider;
     var toRemove = List<int>();
-    _removeCachedFile(cacheObject, toRemove);
+    _removeCachedFile(cacheObject, toRemove, files: files);
     await provider.deleteAll(toRemove);
   }
 
-  _removeCachedFile(CacheObject cacheObject, List<int> toRemove) async {
+  _removeCachedFile(CacheObject cacheObject, List<int> toRemove,
+      {bool files = true}) async {
     if (!toRemove.contains(cacheObject.id)) {
       toRemove.add(cacheObject.id);
       if (_memCache.containsKey(cacheObject.url))
@@ -173,6 +174,11 @@ class CacheStore {
       if (_futureCache.containsKey(cacheObject.url))
         _futureCache.remove(cacheObject.url);
     }
+
+    if (!files) {
+      return;
+    }
+
     var file = new File(p.join(await filePath, cacheObject.relativePath));
     if (await file.exists()) {
       file.delete();
