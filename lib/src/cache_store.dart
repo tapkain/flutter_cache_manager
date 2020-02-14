@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter_cache_manager/src/cache_object.dart';
 import 'package:flutter_cache_manager/src/file_info.dart';
 import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart';
 
 ///Flutter Cache Manager
 ///Copyright (c) 2019 Rene Floor
@@ -36,14 +35,7 @@ class CacheStore {
   }
 
   Future<CacheObjectProvider> _getObjectProvider() async {
-    var databasesPath = await getDatabasesPath();
-    var path = p.join(databasesPath, "$storeKey.db");
-
-    // Make sure the directory exists
-    try {
-      await Directory(databasesPath).create(recursive: true);
-    } catch (_) {}
-    final provider = CacheObjectProvider(path);
+    final provider = CacheObjectProvider();
     await provider.open();
     return provider;
   }
@@ -72,7 +64,7 @@ class CacheStore {
       _getCacheDataFromDatabase(url).then((cacheObject) async {
         if (cacheObject != null && !await _fileExists(cacheObject)) {
           final provider = await _cacheObjectProvider;
-          provider.delete(cacheObject.id);
+          provider.delete(cacheObject);
           cacheObject = null;
         }
         completer.complete(cacheObject);
@@ -135,7 +127,7 @@ class CacheStore {
     var overCapacity = await provider.getObjectsOverCapacity(_capacity);
     var oldObjects = await provider.getOldObjects(_maxAge);
 
-    var toRemove = List<int>();
+    var toRemove = List<CacheObject>();
     overCapacity.forEach((cacheObject) async {
       _removeCachedFile(cacheObject, toRemove);
     });
@@ -148,7 +140,7 @@ class CacheStore {
 
   emptyCache({bool files = true}) async {
     var provider = await _cacheObjectProvider;
-    var toRemove = List<int>();
+    var toRemove = List<CacheObject>();
 
     var allObjects = await provider.getAllObjects();
     allObjects.forEach((cacheObject) async {
@@ -160,15 +152,15 @@ class CacheStore {
 
   removeCachedFile(CacheObject cacheObject, {bool files = true}) async {
     var provider = await _cacheObjectProvider;
-    var toRemove = List<int>();
+    var toRemove = List<CacheObject>();
     _removeCachedFile(cacheObject, toRemove, files: files);
     await provider.deleteAll(toRemove);
   }
 
-  _removeCachedFile(CacheObject cacheObject, List<int> toRemove,
+  _removeCachedFile(CacheObject cacheObject, List<CacheObject> toRemove,
       {bool files = true}) async {
-    if (!toRemove.contains(cacheObject.id)) {
-      toRemove.add(cacheObject.id);
+    if (toRemove.where((e) => e.id == cacheObject.id).length == 0) {
+      toRemove.add(cacheObject);
       if (_memCache.containsKey(cacheObject.url))
         _memCache.remove(cacheObject.url);
       if (_futureCache.containsKey(cacheObject.url))
@@ -183,10 +175,5 @@ class CacheStore {
     if (await file.exists()) {
       file.delete();
     }
-  }
-
-  Future<void> dispose() async {
-    final provider = await _cacheObjectProvider;
-    await provider.close();
   }
 }

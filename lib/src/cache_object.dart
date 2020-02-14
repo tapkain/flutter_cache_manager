@@ -5,7 +5,9 @@
 // HINT: Unnecessary import. Future and Stream are available via dart:core.
 import 'dart:async';
 
-import 'package:sqflite/sqflite.dart';
+import 'package:hive/hive.dart';
+
+part 'cache_object.g.dart';
 
 final String tableCacheObject = "cacheObject";
 
@@ -24,67 +26,44 @@ final String columnTouched = "touched";
  */
 
 ///Cache information of one file
-class CacheObject {
+///
+
+@HiveType(typeId: 0)
+class CacheObject extends HiveObject {
+  @HiveField(0)
   int id;
+
+  @HiveField(1)
   String url;
+
+  @HiveField(2)
   String relativePath;
+
+  @HiveField(3)
   DateTime validTill;
+
+  @HiveField(4)
   String eTag;
 
-  CacheObject(this.url,
-      {this.relativePath, this.validTill, this.eTag, this.id});
+  @HiveField(5)
+  DateTime touched;
 
-  Map<String, dynamic> toMap() {
-    var map = <String, dynamic>{
-      columnUrl: url,
-      columnPath: relativePath,
-      columnETag: eTag,
-      columnValidTill: validTill?.millisecondsSinceEpoch ?? 0,
-      columnTouched: DateTime.now().millisecondsSinceEpoch
-    };
-    if (id != null) {
-      map[columnId] = id;
-    }
-    return map;
-  }
-
-  CacheObject.fromMap(Map<String, dynamic> map) {
-    id = map[columnId];
-    url = map[columnUrl];
-    relativePath = map[columnPath];
-    validTill = DateTime.fromMillisecondsSinceEpoch(map[columnValidTill]);
-    eTag = map[columnETag];
-  }
-
-  static List<CacheObject> fromMapList(List<Map<String, dynamic>> list) {
-    var objects = new List<CacheObject>();
-    for (var map in list) {
-      objects.add(CacheObject.fromMap(map));
-    }
-    return objects;
+  CacheObject(
+    this.url, {
+    this.relativePath,
+    this.validTill,
+    this.eTag,
+    this.id,
+  }) {
+    touched = DateTime.now();
   }
 }
 
 class CacheObjectProvider {
-  Database db;
-  String path;
-
-  CacheObjectProvider(this.path);
+  Box<CacheObject> objects;
 
   Future open() async {
-    db = await openDatabase(path, version: 1,
-        onCreate: (Database db, int version) async {
-      await db.execute('''
-      create table $tableCacheObject ( 
-        $columnId integer primary key, 
-        $columnUrl text, 
-        $columnPath text,
-        $columnETag text,
-        $columnValidTill integer,
-        $columnTouched integer
-        )
-      ''');
-    });
+    objects = await Hive.openBox<CacheObject>('image_cache');
   }
 
   Future<dynamic> updateOrInsert(CacheObject cacheObject) async {
@@ -96,64 +75,51 @@ class CacheObjectProvider {
   }
 
   Future<CacheObject> insert(CacheObject cacheObject) async {
-    cacheObject.id = await db.insert(tableCacheObject, cacheObject.toMap());
+    final id = await objects.add(cacheObject);
+    cacheObject.id = id;
+    await cacheObject.save();
     return cacheObject;
   }
 
   Future<CacheObject> get(String url) async {
-    List<Map> maps = await db.query(tableCacheObject,
-        columns: null, where: "$columnUrl = ?", whereArgs: [url]);
-    if (maps.length > 0) {
-      return new CacheObject.fromMap(maps.first);
+    try {
+      return objects.values.firstWhere((e) => e.url == url);
+    } catch (_) {
+      return null;
     }
-    return null;
   }
 
-  Future<int> delete(int id) async {
-    return await db
-        .delete(tableCacheObject, where: "$columnId = ?", whereArgs: [id]);
+  Future<void> delete(CacheObject object) async {
+    return object.delete();
   }
 
-  Future deleteAll(Iterable<int> ids) async {
-    return await db.delete(tableCacheObject,
-        where: "$columnId IN (" + ids.join(",") + ")");
+  Future deleteAll(Iterable<CacheObject> o) async {
+    final futures = o.map((e) => e.delete()).toList();
+    return Future.wait(futures);
   }
 
-  Future<int> update(CacheObject cacheObject) async {
-    return await db.update(tableCacheObject, cacheObject.toMap(),
-        where: "$columnId = ?", whereArgs: [cacheObject.id]);
+  Future<void> update(CacheObject cacheObject) async {
+    return cacheObject.save();
   }
 
   Future<List<CacheObject>> getAllObjects() async {
-    List<Map> maps = await db.query(tableCacheObject, columns: null);
-    return CacheObject.fromMapList(maps);
+    return objects.values;
   }
 
   Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async {
-    List<Map> maps = await db.query(tableCacheObject,
-        columns: null,
-        orderBy: "$columnTouched DESC",
-        where: "$columnTouched < ?",
-        whereArgs: [
-          DateTime.now().subtract(new Duration(days: 1)).millisecondsSinceEpoch
-        ],
-        limit: 100,
-        offset: capacity);
-
-    return CacheObject.fromMapList(maps);
+    final arg =
+        DateTime.now().subtract(new Duration(days: 1)).millisecondsSinceEpoch;
+    return objects.values
+        .where((e) => e.touched.millisecondsSinceEpoch < arg)
+        .skip(capacity)
+        .take(100)
+        .toList();
   }
 
   Future<List<CacheObject>> getOldObjects(Duration maxAge) async {
-    List<Map<String, dynamic>> maps = await db.query(
-      tableCacheObject,
-      where: "$columnTouched < ?",
-      columns: null,
-      whereArgs: [DateTime.now().subtract(maxAge).millisecondsSinceEpoch],
-      limit: 100,
-    );
-
-    return CacheObject.fromMapList(maps);
+    final arg = DateTime.now().subtract(maxAge).millisecondsSinceEpoch;
+    return objects.values
+        .where((e) => e.touched.millisecondsSinceEpoch < arg)
+        .toList();
   }
-
-  Future close() async => await db.close();
 }
