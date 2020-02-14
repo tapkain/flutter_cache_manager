@@ -3,13 +3,14 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_cache_manager/src/cache_object.dart';
 import 'package:flutter_cache_manager/src/cache_store.dart';
 import 'package:flutter_cache_manager/src/file_fetcher.dart';
 import 'package:flutter_cache_manager/src/file_info.dart';
 import 'package:flutter_cache_manager/src/web_helper.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 ///Flutter Cache Manager
@@ -18,24 +19,62 @@ import 'package:uuid/uuid.dart';
 
 class DefaultCacheManager extends BaseCacheManager {
   static const key = "libCachedImageData";
+  final String directory;
+  static Dio dio;
 
   static DefaultCacheManager _instance;
 
   /// The DefaultCacheManager that can be easily used directly. The code of
   /// this implementation can be used as inspiration for more complex cache
   /// managers.
-  factory DefaultCacheManager() {
+  factory DefaultCacheManager({String directory, Dio dio}) {
     if (_instance == null) {
-      _instance = new DefaultCacheManager._();
+      if (directory == null || dio == null) {
+        throw Exception('directory and dio missing');
+      }
+      _instance = new DefaultCacheManager._(
+        directory: directory,
+        dio: dio,
+      );
     }
     return _instance;
   }
 
-  DefaultCacheManager._() : super(key);
+  static Future<FileFetcherResponse> _fileFetcher(String url,
+      {Map<String, String> headers}) async {
+    try {
+      final dioResponse = await dio.get<List<int>>(url,
+          options: Options(
+            headers: headers,
+            responseType: ResponseType.bytes,
+          ));
+
+      final responseHeaders =
+          dioResponse.headers.map.map((k, v) => MapEntry(k, v.first));
+
+      var httpResponse = http.Response.bytes(
+        dioResponse.data,
+        dioResponse.statusCode,
+        headers: responseHeaders,
+      );
+
+      return HttpFileFetcherResponse(httpResponse);
+    } catch (error) {
+      print('FAILED TO FETCH IMAGE\n$url');
+      if (error is DioError) {
+        print(error.response.statusCode);
+        print(error.toString());
+        print(error.message);
+      }
+      return null;
+    }
+  }
+
+  DefaultCacheManager._({this.directory, Dio dio})
+      : super(key, fileFetcher: _fileFetcher);
 
   Future<String> getFilePath() async {
-    var directory = await getTemporaryDirectory();
-    return p.join(directory.path, key);
+    return directory;
   }
 }
 
